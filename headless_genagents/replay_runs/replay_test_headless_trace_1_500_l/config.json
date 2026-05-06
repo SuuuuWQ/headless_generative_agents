@@ -1,0 +1,14 @@
+{
+  "mode": "replay",
+  "trace": "../../traces/trace_test_headless_trace_1_500.jsonl",
+  "source_sim": "test_headless_trace_1_500",
+  "fork_sim": "July1_the_ville_isabella_maria_klaus-step-3-14",
+  "replay_sim": "replay_test_headless_trace_1_500_l",
+  "steps": 500,
+  "status": "ok",
+  "perf": "perf.jsonl",
+  "report": "report.json",
+  "report_md": "report.md",
+  "figures": "figures",
+  "storage": "../../environment/frontend_server/storage/replay_test_headless_trace_1_500_l"
+}

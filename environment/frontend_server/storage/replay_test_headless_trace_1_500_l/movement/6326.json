@@ -1,0 +1,164 @@
+{
+  "persona": {
+    "Isabella Rodriguez": {
+      "movement": [
+        76,
+        22
+      ],
+      "pronunciatio": "\ud83d\udcac",
+      "description": "conversing about planning a Valentine's Day party, including helping set up the playlist and organizing treats, with the party starting at 5:30pm @ <persona> Klaus Mueller",
+      "chat": [
+        [
+          "Isabella Rodriguez",
+          "Hi Klaus! I hope you're enjoying your meal. I was just getting ready for the Valentine's Day party and saw you here. Would you like to join us? We're planning a great time for everyone!"
+        ],
+        [
+          "Klaus Mueller",
+          "Hi Isabella! Thank you for inviting me. I'm enjoying my meal, but I think I'll join you for the Valentine's Day festivities. It sounds like a lot of fun!"
+        ],
+        [
+          "Isabella Rodriguez",
+          "Great! I'm so glad you're coming. We have a special playlist ready and some delicious treats to share. Would you like to help set up anything or just enjoy the party with us?"
+        ],
+        [
+          "Klaus Mueller",
+          "I'd love to help set up, if that's okay. Maybe we can finalize the playlist or organize some of the treats. It'll be great to meet everyone there!"
+        ],
+        [
+          "Isabella Rodriguez",
+          "Absolutely! Helping with the playlist or organizing the treats will be fantastic. Let's make sure the music and snacks are perfect for our guests. We can start with the playlist now, if you're up for it."
+        ],
+        [
+          "Klaus Mueller",
+          "That sounds perfect! Let's get started on the playlist. I think some upbeat songs would be great for dancing. Maybe we can include some classics as well. What are your thoughts?"
+        ],
+        [
+          "Isabella Rodriguez",
+          "Absolutely! Let's start by adding some upbeat, romantic tunes that will get everyone in the Valentine's Day mood. And yes, including some classics would be lovely. What songs do you think would be perfect for the playlist?"
+        ],
+        [
+          "Klaus Mueller",
+          "I think we should include songs like 'Endless Love' by Diana Ross and Lionel Richie, and 'Unchained Melody' by The Righteous Brothers. They're timeless and perfect for the occasion. What do you think about adding those?"
+        ],
+        [
+          "Isabella Rodriguez",
+          "Those are wonderful choices! 'Endless Love' and 'Unchained Melody' are perfect. Let's add them to the playlist. We should also include some modern hits that will keep everyone dancing. What are your thoughts on adding songs like 'Thinking Out Loud' by Ed Sheeran and 'Can't Help Falling in Love' by Elton John?"
+        ],
+        [
+          "Klaus Mueller",
+          "Those are great additions! 'Thinking Out Loud' and 'Can't Help Falling in Love' will definitely get everyone moving. Let's also include some fun, upbeat songs like 'Shallow' by Lady Gaga and Bradley Cooper and 'Perfect' by Ed Sheeran. What do you think about that mix?"
+        ],
+        [
+          "Isabella Rodriguez",
+          "Those are all fantastic choices, Klaus! Adding 'Shallow' and 'Perfect' will definitely enhance the vibe of the party. Let's finalize the playlist and make sure everything is perfect for our guests. What time do you think we should start the party to ensure everyone has a great time?"
+        ],
+        [
+          "Klaus Mueller",
+          "Let's aim to start the party around 5:30pm, so we have some time to finalize everything. That way, everyone can arrive, mingle, and get into the Valentine's Day spirit before the festivities begin. What do you think, Isabella?"
+        ],
+        [
+          "Isabella Rodriguez",
+          "That sounds perfect, Klaus! Let's plan to start around 5:30pm. I'll make sure everything is set up and ready. Can't wait to see everyone's faces light up as they enjoy the music and treats!"
+        ],
+        [
+          "Klaus Mueller",
+          "I agree, starting at 5:30pm will give everyone enough time to mingle and get comfortable. I can't wait to see the look on everyone's faces as they enjoy the music and treats. Thanks for organizing this, Isabella!"
+        ],
+        [
+          "Isabella Rodriguez",
+          "Absolutely, Klaus! Starting at 5:30pm will be perfect. I'll make sure everything is set up and ready. Can't wait to see everyone's faces light up as they enjoy the music and treats!"
+        ],
+        [
+          "Klaus Mueller",
+          "I'll make sure to be there on time and help with anything needed. It's going to be a wonderful evening, Isabella!"
+        ]
+      ]
+    },
+    "Maria Lopez": {
+      "movement": [
+        126,
+        54
+      ],
+      "pronunciatio": "\ud83d\udd0d\ud83d\udcda",
+      "description": "studying physics at Hobbs Cafe (researching new topics) @ the Ville:Dorm for Oak Hill College:Maria Lopez's room:computer",
+      "chat": null
+    },
+    "Klaus Mueller": {
+      "movement": [
+        76,
+        23
+      ],
+      "pronunciatio": "\ud83d\udcac",
+      "description": "conversing about planning a Valentine's Day party, including helping set up the playlist and organizing treats, with the party starting at 5:30pm @ <persona> Isabella Rodriguez",
+      "chat": [
+        [
+          "Isabella Rodriguez",
+          "Hi Klaus! I hope you're enjoying your meal. I was just getting ready for the Valentine's Day party and saw you here. Would you like to join us? We're planning a great time for everyone!"
+        ],
+        [
+          "Klaus Mueller",
+          "Hi Isabella! Thank you for inviting me. I'm enjoying my meal, but I think I'll join you for the Valentine's Day festivities. It sounds like a lot of fun!"
+        ],
+        [
+          "Isabella Rodriguez",
+          "Great! I'm so glad you're coming. We have a special playlist ready and some delicious treats to share. Would you like to help set up anything or just enjoy the party with us?"
+        ],
+        [
+          "Klaus Mueller",
+          "I'd love to help set up, if that's okay. Maybe we can finalize the playlist or organize some of the treats. It'll be great to meet everyone there!"
+        ],
+        [
+          "Isabella Rodriguez",
+          "Absolutely! Helping with the playlist or organizing the treats will be fantastic. Let's make sure the music and snacks are perfect for our guests. We can start with the playlist now, if you're up for it."
+        ],
+        [
+          "Klaus Mueller",
+          "That sounds perfect! Let's get started on the playlist. I think some upbeat songs would be great for dancing. Maybe we can include some classics as well. What are your thoughts?"
+        ],
+        [
+          "Isabella Rodriguez",
+          "Absolutely! Let's start by adding some upbeat, romantic tunes that will get everyone in the Valentine's Day mood. And yes, including some classics would be lovely. What songs do you think would be perfect for the playlist?"
+        ],
+        [
+          "Klaus Mueller",
+          "I think we should include songs like 'Endless Love' by Diana Ross and Lionel Richie, and 'Unchained Melody' by The Righteous Brothers. They're timeless and perfect for the occasion. What do you think about adding those?"
+        ],
+        [
+          "Isabella Rodriguez",
+          "Those are wonderful choices! 'Endless Love' and 'Unchained Melody' are perfect. Let's add them to the playlist. We should also include some modern hits that will keep everyone dancing. What are your thoughts on adding songs like 'Thinking Out Loud' by Ed Sheeran and 'Can't Help Falling in Love' by Elton John?"
+        ],
+        [
+          "Klaus Mueller",
+          "Those are great additions! 'Thinking Out Loud' and 'Can't Help Falling in Love' will definitely get everyone moving. Let's also include some fun, upbeat songs like 'Shallow' by Lady Gaga and Bradley Cooper and 'Perfect' by Ed Sheeran. What do you think about that mix?"
+        ],
+        [
+          "Isabella Rodriguez",
+          "Those are all fantastic choices, Klaus! Adding 'Shallow' and 'Perfect' will definitely enhance the vibe of the party. Let's finalize the playlist and make sure everything is perfect for our guests. What time do you think we should start the party to ensure everyone has a great time?"
+        ],
+        [
+          "Klaus Mueller",
+          "Let's aim to start the party around 5:30pm, so we have some time to finalize everything. That way, everyone can arrive, mingle, and get into the Valentine's Day spirit before the festivities begin. What do you think, Isabella?"
+        ],
+        [
+          "Isabella Rodriguez",
+          "That sounds perfect, Klaus! Let's plan to start around 5:30pm. I'll make sure everything is set up and ready. Can't wait to see everyone's faces light up as they enjoy the music and treats!"
+        ],
+        [
+          "Klaus Mueller",
+          "I agree, starting at 5:30pm will give everyone enough time to mingle and get comfortable. I can't wait to see the look on everyone's faces as they enjoy the music and treats. Thanks for organizing this, Isabella!"
+        ],
+        [
+          "Isabella Rodriguez",
+          "Absolutely, Klaus! Starting at 5:30pm will be perfect. I'll make sure everything is set up and ready. Can't wait to see everyone's faces light up as they enjoy the music and treats!"
+        ],
+        [
+          "Klaus Mueller",
+          "I'll make sure to be there on time and help with anything needed. It's going to be a wonderful evening, Isabella!"
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "curr_time": "February 13, 2023, 17:34:20"
+  }
+}

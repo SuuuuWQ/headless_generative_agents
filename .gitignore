@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Logs
+*.log
+
+# Generated headless outputs. Keep the checked-in example files, but ignore new runs.
+headless_genagents/traces/trace_*.jsonl
+!headless_genagents/traces/trace_test_headless_trace_1_500.jsonl
+
+headless_genagents/perf/*.jsonl
+
+headless_genagents/reports/*.json
+headless_genagents/reports/*.md
+
+headless_genagents/figures/*
+
+headless_genagents/replay_runs/*
+!headless_genagents/replay_runs/replay_test_headless_trace_1_500_l/
+!headless_genagents/replay_runs/replay_test_headless_trace_1_500_l/**
+
+# Generated simulation folders. Keep included examples.
+environment/frontend_server/storage/headless_*/
+environment/frontend_server/storage/replay_*/
+environment/frontend_server/storage/test*/
+!environment/frontend_server/storage/test_headless_trace_1_500/
+!environment/frontend_server/storage/test_headless_trace_1_500/**
+!environment/frontend_server/storage/July1_the_ville_isabella_maria_klaus-step-3-14/
+!environment/frontend_server/storage/July1_the_ville_isabella_maria_klaus-step-3-14/**
+!environment/frontend_server/storage/replay_test_headless_trace_1_500_l/
+!environment/frontend_server/storage/replay_test_headless_trace_1_500_l/**
+
+environment/frontend_server/temp_storage/*
