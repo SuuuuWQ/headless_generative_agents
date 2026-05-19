@@ -25,16 +25,35 @@ The package includes:
 
 Most files in `headless_genagents/` are copied from the original
 `reverie/backend_server` backend to keep the GA control flow close to the
-original system. The main added or modified entry points are:
+original system. The main added or modified tools are grouped below.
+
+### Run And Record
 
 - `headless_runner.py`: run GA without the browser visualization loop.
 - `headless_trace_runner.py`: run headless GA and record a replay trace.
+- `headless_direct_trace_perf_runner.py`: run headless GA once and record both
+  a full replay trace and direct-run performance logs. This is the recommended
+  entry point for new trace collection.
+- `headless_direct_perf_runner.py`: run headless GA and record performance logs
+  without writing a full replay trace.
+
+### Replay And Check
+
 - `headless_replay_runner.py`: replay a trace through the real headless GA
   control flow while timing model calls and using trace values for
   nondeterministic results.
+- `compare_ga_behavior.py`: compare direct and replay artifacts at behavior and
+  LLM-call level.
 - `verify_headless_replay.py`: check trace integrity, replay output, metadata,
   and performance logs.
+
+### Plot
+
+- `plot_direct_perf.py`: generate direct-run timeline figures.
 - `plot_replay_report.py`: generate profiling figures from a replay report.
+
+### Support
+
 - `sglang_openai_patch.py`: route legacy OpenAI calls to local
   OpenAI-compatible SGLang endpoints.
 - `utils.py`: local path and API configuration for this self-contained copy.
@@ -79,6 +98,21 @@ export SGLANG_EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B
 
 `SGLANG_API_KEY` is currently a constant in `sglang_openai_patch.py`; edit that
 line directly if your server requires a different key.
+
+For lower-variance runs, you can also force common sampling settings:
+
+```bash
+export SGLANG_FORCE_TEMPERATURE=0
+export SGLANG_FORCE_TOP_P=1
+export SGLANG_REQUEST_SEED=1
+export GA_RANDOM_SEED=1
+export PYTHONHASHSEED=1
+```
+
+`SGLANG_FORCE_TEMPERATURE` and `SGLANG_FORCE_TOP_P` override the temperature and
+top-p sent by legacy GA prompts. `SGLANG_REQUEST_SEED` is passed through to
+OpenAI-compatible servers that support per-request seeds. `GA_RANDOM_SEED`
+seeds Python and NumPy inside the direct trace+perf runner.
 
 Example local SGLang launch commands:
 
@@ -133,7 +167,44 @@ This should create:
 ../environment/frontend_server/storage/headless_smoke
 ```
 
-## Record A Trace
+## Record A Trace With Direct Performance Logs
+
+This is the recommended command for new experiments because it records the full
+trace and a direct-run performance log in one run:
+
+```bash
+cd headless_genagents
+python headless_direct_trace_perf_runner.py \
+  --fork July1_the_ville_isabella_maria_klaus-step-3-14 \
+  --sim direct_trace_perf_100 \
+  --steps 100 \
+  --seed 1
+```
+
+This writes:
+
+```text
+headless_genagents/traces/trace_direct_trace_perf_100.jsonl
+headless_genagents/direct_run_perf_runs/direct_trace_perf_100/
+  config.json
+  perf.jsonl
+```
+
+Prefix snapshots are optional and disabled by default. Enable them only when you
+need to resume or debug from intermediate prefixes:
+
+```bash
+export TRACE_RECORD_PREFIX_SNAPSHOTS=true
+```
+
+To generate direct-run timeline figures:
+
+```bash
+python plot_direct_perf.py \
+  --perf direct_run_perf_runs/direct_trace_perf_100/perf.jsonl
+```
+
+## Record A Trace Only
 
 Interactive mode:
 
@@ -203,6 +274,29 @@ python headless_replay_runner.py \
   --sim replay_test_headless_trace_1_500_new \
   --run-dir replay_runs/replay_test_headless_trace_1_500_new
 ```
+
+To replay a trace you just recorded:
+
+```bash
+python headless_replay_runner.py \
+  --trace traces/trace_direct_trace_perf_100.jsonl \
+  --sim replay_direct_trace_perf_100
+```
+
+## Compare Direct Run And Replay
+
+After recording a direct trace+perf run and replaying it, compare behavior and
+LLM-call alignment:
+
+```bash
+python compare_ga_behavior.py \
+  direct_run_perf_runs/direct_trace_perf_100 \
+  replay_runs/replay_direct_trace_perf_100
+```
+
+The behavior-level comparison checks agent-round outputs, retrieval/reflection
+counts, memory writes, and model-call signatures. The LLM-call comparison is
+the most useful view for steps that contain many model calls.
 
 ## Report And Figures
 

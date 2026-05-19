@@ -17,6 +17,7 @@ import types
 import traceback
 import builtins
 import json
+import threading
 
 import openai
 import requests
@@ -40,7 +41,7 @@ SGLANG_MODEL = os.environ.get("SGLANG_MODEL", "Qwen/Qwen2.5-7B-Instruct-AWQ")
 
 SGLANG_EMBEDDING_API_BASE = os.environ.get(
     "SGLANG_EMBEDDING_API_BASE",
-    "http://0.0.0.0:1920/v1",
+    "http://127.0.0.1:1920/v1",
 )
 SGLANG_EMBEDDING_MODEL = os.environ.get(
     "SGLANG_EMBEDDING_MODEL",
@@ -52,6 +53,58 @@ SGLANG_EMBEDDING_MODEL = os.environ.get(
 EMBEDDING_DIMENSION = 1536
 SGLANG_PATCH_LOG = os.environ.get("SGLANG_PATCH_LOG", "sglang_patch.log")
 SGLANG_EMBEDDING_API_KEY = SGLANG_API_KEY
+_REQUEST_CONTEXT = threading.local()
+
+
+def _env_flag(name):
+  return os.environ.get(name, "").lower() in ("1", "true", "yes", "on")
+
+
+def clear_last_llm_payload():
+  _REQUEST_CONTEXT.last_llm_payload = None
+
+
+def get_last_llm_payload():
+  return getattr(_REQUEST_CONTEXT, "last_llm_payload", None)
+
+
+def _compact_llm_payload(api, payload):
+  return {
+      "api": api,
+      "model": payload.get("model"),
+      "temperature": payload.get("temperature"),
+      "top_p": payload.get("top_p"),
+      "seed": payload.get("seed"),
+      "max_tokens": payload.get("max_tokens"),
+      "stop": payload.get("stop"),
+      "stream": payload.get("stream"),
+  }
+
+
+def _force_temperature(payload):
+  value = os.environ.get("SGLANG_FORCE_TEMPERATURE")
+  if value is None or value == "":
+    return
+  try:
+    payload["temperature"] = float(value)
+  except ValueError:
+    payload["temperature"] = 0
+
+
+def _force_sampling_params(payload):
+  _force_temperature(payload)
+  top_p = os.environ.get("SGLANG_FORCE_TOP_P")
+  if top_p not in (None, ""):
+    try:
+      payload["top_p"] = float(top_p)
+    except ValueError:
+      payload["top_p"] = 1
+  seed = os.environ.get("SGLANG_REQUEST_SEED")
+  if seed not in (None, ""):
+    try:
+      payload["seed"] = int(seed)
+    except ValueError:
+      payload["seed"] = seed
 
 
 openai.api_key = SGLANG_API_KEY or "EMPTY"
@@ -185,6 +238,8 @@ def _sanitize_completion_text(text, prompt=None):
 def _patched_chat_create(*args, **kwargs):
   payload = dict(kwargs)
   payload["model"] = SGLANG_MODEL
+  _force_sampling_params(payload)
+  _REQUEST_CONTEXT.last_llm_payload = _compact_llm_payload("chat", payload)
   return _to_openai_compat(_post_sglang("chat/completions", payload))
 
 
@@ -204,10 +259,13 @@ def _patched_completion_create(*args, **kwargs):
 
   if kwargs.get("stop") is not None:
     payload["stop"] = kwargs["stop"]
+  _force_sampling_params(payload)
+  _REQUEST_CONTEXT.last_llm_payload = _compact_llm_payload("completion", payload)
 
   max_tokens_cap = os.environ.get("SGLANG_MAX_TOKENS_CAP")
   if max_tokens_cap:
     payload["max_tokens"] = min(payload["max_tokens"], int(max_tokens_cap))
+    _REQUEST_CONTEXT.last_llm_payload = _compact_llm_payload("completion", payload)
 
   data = _post_sglang("completions", payload)
   if data.get("choices"):

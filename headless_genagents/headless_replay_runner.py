@@ -80,6 +80,13 @@ class ReplayController:
   def perf(self, **event):
     if not self.perf_file:
       return
+    now_ns = time.time_ns()
+    if "end_time_ns" not in event:
+      event["end_time_ns"] = now_ns
+    if "start_time_ns" not in event:
+      latency_ms = event.get("latency_ms")
+      if isinstance(latency_ms, (int, float)):
+        event["start_time_ns"] = int(event["end_time_ns"] - (latency_ms * 1_000_000))
     self.perf_seq += 1
     event = {"seq": self.perf_seq, **self.safe(event)}
     event_type = event.get("type")
@@ -150,11 +157,15 @@ class ReplayController:
 
   def set_last_llm_text(self, text):
     self.context.last_llm_text = text
+    self.context.recent_llm_text = text
 
   def pop_last_llm_text(self):
     text = getattr(self.context, "last_llm_text", None)
     self.context.last_llm_text = None
     return text
+
+  def recent_llm_text(self):
+    return getattr(self.context, "recent_llm_text", None)
 
   def set_sim_clock(self, step, curr_time, sec_per_step):
     self.sim_base_step = step
@@ -593,6 +604,16 @@ def _warn_or_check(label, actual, expected):
     REPLAY.warn(str(exc))
 
 
+def _prompt_record_for_compare(record):
+  if not record:
+    return record
+  return {
+      "prompt_sha256": record.get("prompt_sha256"),
+      "prompt_template": record.get("prompt_template"),
+      "prompt_template_sha256": record.get("prompt_template_sha256"),
+  }
+
+
 def _wrap_gpt_structure_module(module):
   def wrap_text_request(func_name):
     original = getattr(module, func_name, None)
@@ -625,28 +646,210 @@ def _wrap_gpt_structure_module(module):
     wrap_text_request(func_name)
 
 
+def _json_output_text(text):
+  if text is None:
+    return None
+  try:
+    start = text.index("{")
+    end = text.rindex("}") + 1
+    parsed = json.loads(text[start:end])
+    return parsed.get("output")
+  except Exception:
+    return None
+
+
+def _clean_canonical_text(text, prompt, func_validate, func_clean_up):
+  if text is None or not func_validate or not func_clean_up:
+    return None
+  try:
+    if func_validate(text, prompt=prompt):
+      return func_clean_up(text, prompt=prompt)
+  except Exception:
+    return None
+  return None
+
+
+def _wrap_safe_generate_module(module):
+  def wrap_safe(func_name, parser):
+    original = getattr(module, func_name, None)
+    if not original or getattr(original, "_replay_wrapped", False):
+      return
+
+    def replay_safe_generate(*args, **kwargs):
+      REPLAY.context.recent_llm_text = None
+      error = None
+      try:
+        result = original(*args, **kwargs)
+      except Exception as exc:
+        result = None
+        error = exc
+      canonical = REPLAY.recent_llm_text()
+      if canonical is None:
+        if error:
+          raise error
+        return result
+      cleaned = parser(canonical, args, kwargs)
+      if cleaned is not None:
+        return cleaned
+      if error:
+        raise error
+      return result
+
+    replay_safe_generate._replay_wrapped = True
+    setattr(module, func_name, replay_safe_generate)
+
+  def parse_completion(canonical, args, kwargs):
+    prompt = args[0] if args else kwargs.get("prompt")
+    func_validate = args[4] if len(args) > 4 else kwargs.get("func_validate")
+    func_clean_up = args[5] if len(args) > 5 else kwargs.get("func_clean_up")
+    return _clean_canonical_text(canonical, prompt, func_validate, func_clean_up)
+
+  def parse_chat(canonical, args, kwargs):
+    prompt = args[0] if args else kwargs.get("prompt")
+    example_output = args[1] if len(args) > 1 else kwargs.get("example_output")
+    special_instruction = args[2] if len(args) > 2 else kwargs.get("special_instruction")
+    func_validate = args[5] if len(args) > 5 else kwargs.get("func_validate")
+    func_clean_up = args[6] if len(args) > 6 else kwargs.get("func_clean_up")
+    decorated_prompt = '"""\n' + prompt + '\n"""\n'
+    decorated_prompt += f"Output the response to the prompt above in json. {special_instruction}\n"
+    decorated_prompt += "Example output json:\n"
+    decorated_prompt += '{"output": "' + str(example_output) + '"}'
+    output_text = _json_output_text(canonical)
+    return _clean_canonical_text(output_text, decorated_prompt, func_validate, func_clean_up)
+
+  def parse_old_chat(canonical, args, kwargs):
+    prompt = args[0] if args else kwargs.get("prompt")
+    func_validate = args[3] if len(args) > 3 else kwargs.get("func_validate")
+    func_clean_up = args[4] if len(args) > 4 else kwargs.get("func_clean_up")
+    return _clean_canonical_text(canonical, prompt, func_validate, func_clean_up)
+
+  wrap_safe("safe_generate_response", parse_completion)
+  wrap_safe("ChatGPT_safe_generate_response", parse_chat)
+  wrap_safe("ChatGPT_safe_generate_response_OLD", parse_old_chat)
+
+
+def _wrap_generate_prompt_module(module):
+  original_generate_prompt = getattr(module, "generate_prompt", None)
+  if not original_generate_prompt or getattr(
+      original_generate_prompt, "_replay_wrapped", False
+  ):
+    return
+
+  def replay_generate_prompt(curr_input, prompt_lib_file):
+    prompt = original_generate_prompt(curr_input, prompt_lib_file)
+    REPLAY.record_prompt(prompt, curr_input, prompt_lib_file)
+    return prompt
+
+  replay_generate_prompt._replay_wrapped = True
+  module.generate_prompt = replay_generate_prompt
+
+
+def _wrap_prompt_result_module(module):
+  for func_name in dir(module):
+    if not func_name.startswith("run_gpt_prompt_"):
+      continue
+    original = getattr(module, func_name, None)
+    if not callable(original) or getattr(original, "_replay_wrapped", False):
+      continue
+
+    def make_replayed(name, original_func):
+      def replay_prompt_function(*args, **kwargs):
+        error = None
+        try:
+          real_result = original_func(*args, **kwargs)
+        except Exception as exc:
+          real_result = None
+          error = exc
+        try:
+          event = REPLAY.consume_next(
+              "prompt_result",
+              agent=REPLAY.current_agent(),
+              step=REPLAY.current_step(),
+              prompt_function=name,
+          )
+        except Exception as exc:
+          if real_result is not None:
+            return real_result
+          if not isinstance(exc, ReplayMismatch):
+            raise
+          raise
+        if event:
+          expected = event.get("result")
+          if real_result is not None:
+            try:
+              REPLAY.check_equal(f"prompt_result {name}", real_result, expected)
+              status = "exact"
+            except ReplayMismatch as exc:
+              REPLAY.warn(str(exc))
+              status = "canonicalized"
+          else:
+            status = "canonicalized"
+          REPLAY.perf(
+              type="prompt_result",
+              event_id=event.get("event_id"),
+              agent=REPLAY.current_agent(),
+              step=REPLAY.current_step(),
+              prompt_function=name,
+              status=status,
+              error=repr(error) if error else None,
+          )
+          return expected
+        if error:
+          raise error
+        return real_result
+
+      replay_prompt_function._replay_wrapped = True
+      return replay_prompt_function
+
+    setattr(module, func_name, make_replayed(func_name, original))
+
+
+def _wrap_loaded_replay_modules():
+  gpt_structure = sys.modules.get("persona.prompt_template.gpt_structure")
+  if not gpt_structure:
+    return
+
+  _wrap_generate_prompt_module(gpt_structure)
+  _wrap_gpt_structure_module(gpt_structure)
+  _wrap_safe_generate_module(gpt_structure)
+
+  replay_names = (
+      "generate_prompt",
+      "GPT_request",
+      "ChatGPT_request",
+      "GPT4_request",
+      "ChatGPT_single_request",
+      "safe_generate_response",
+      "ChatGPT_safe_generate_response",
+      "ChatGPT_safe_generate_response_OLD",
+  )
+  for module in list(sys.modules.values()):
+    module_name = getattr(module, "__name__", "")
+    if not module_name.startswith("persona.prompt_template."):
+      continue
+    if module is gpt_structure:
+      continue
+    for name in replay_names:
+      if hasattr(module, name) and hasattr(gpt_structure, name):
+        setattr(module, name, getattr(gpt_structure, name))
+    if module_name == "persona.prompt_template.run_gpt_prompt":
+      _wrap_prompt_result_module(module)
+
+
 def _install_import_replay_hooks():
   original_import = builtins.__import__
 
   def replay_import(name, globals=None, locals=None, fromlist=(), level=0):
     module = original_import(name, globals, locals, fromlist, level)
     if name == "persona.prompt_template.gpt_structure":
-      original_generate_prompt = getattr(module, "generate_prompt", None)
-      if original_generate_prompt and not getattr(
-          original_generate_prompt, "_replay_wrapped", False
-      ):
-
-        def replay_generate_prompt(curr_input, prompt_lib_file):
-          prompt = original_generate_prompt(curr_input, prompt_lib_file)
-          REPLAY.record_prompt(prompt, curr_input, prompt_lib_file)
-          return prompt
-
-        replay_generate_prompt._replay_wrapped = True
-        module.generate_prompt = replay_generate_prompt
+      _wrap_generate_prompt_module(module)
       _wrap_gpt_structure_module(module)
+    if name == "persona.prompt_template.run_gpt_prompt":
+      _wrap_prompt_result_module(module)
     return module
 
   builtins.__import__ = replay_import
+  _wrap_loaded_replay_modules()
 
 
 def _install_openai_replay_hooks():
@@ -673,8 +876,13 @@ def _install_openai_replay_hooks():
     if request_event and prompt_record:
       expected = request_event.get("prompt_record") or (request_event.get("request") or {}).get("prompt_record")
       if expected:
-        _warn_or_check("prompt_record", prompt_record, expected)
+        _warn_or_check(
+            "prompt_record",
+            _prompt_record_for_compare(prompt_record),
+            _prompt_record_for_compare(expected),
+        )
 
+    start_time_ns = time.time_ns()
     started = time.perf_counter()
     status = "ok"
     error = None
@@ -685,16 +893,28 @@ def _install_openai_replay_hooks():
       status = "error"
       error = repr(exc)
     elapsed_ms = (time.perf_counter() - started) * 1000
+    end_time_ns = time.time_ns()
     response_event = REPLAY.consume("llm_response", event_id)
     texts = (response_event or {}).get("canonical_texts", [])
     if texts:
       REPLAY.set_last_llm_text(texts[0])
+    trace_prompt_record = None
+    if request_event:
+      trace_prompt_record = (
+          request_event.get("prompt_record")
+          or (request_event.get("request") or {}).get("prompt_record")
+      )
     REPLAY.perf(
         type="llm",
         event_id=event_id,
         api="completion",
         agent=REPLAY.current_agent(),
         step=REPLAY.current_step(),
+        prompt_record=trace_prompt_record or prompt_record,
+        actual_prompt_record=prompt_record,
+        response_texts=texts,
+        start_time_ns=start_time_ns,
+        end_time_ns=end_time_ns,
         latency_ms=elapsed_ms,
         status=status,
         error=error,
@@ -731,8 +951,13 @@ def _install_openai_replay_hooks():
     if request_event and prompt_record:
       expected = request_event.get("prompt_record") or (request_event.get("request") or {}).get("prompt_record")
       if expected:
-        _warn_or_check("prompt_record", prompt_record, expected)
+        _warn_or_check(
+            "prompt_record",
+            _prompt_record_for_compare(prompt_record),
+            _prompt_record_for_compare(expected),
+        )
 
+    start_time_ns = time.time_ns()
     started = time.perf_counter()
     status = "ok"
     error = None
@@ -743,16 +968,28 @@ def _install_openai_replay_hooks():
       status = "error"
       error = repr(exc)
     elapsed_ms = (time.perf_counter() - started) * 1000
+    end_time_ns = time.time_ns()
     response_event = REPLAY.consume("llm_response", event_id)
     texts = (response_event or {}).get("canonical_texts", [])
     if texts:
       REPLAY.set_last_llm_text(texts[0])
+    trace_prompt_record = None
+    if request_event:
+      trace_prompt_record = (
+          request_event.get("prompt_record")
+          or (request_event.get("request") or {}).get("prompt_record")
+      )
     REPLAY.perf(
         type="llm",
         event_id=event_id,
         api="chat",
         agent=REPLAY.current_agent(),
         step=REPLAY.current_step(),
+        prompt_record=trace_prompt_record or prompt_record,
+        actual_prompt_record=prompt_record,
+        response_texts=texts,
+        start_time_ns=start_time_ns,
+        end_time_ns=end_time_ns,
         latency_ms=elapsed_ms,
         status=status,
         error=error,
@@ -774,6 +1011,7 @@ def _install_openai_replay_hooks():
         REPLAY.event_id("embedding")
     )
 
+    start_time_ns = time.time_ns()
     started = time.perf_counter()
     status = "ok"
     error = None
@@ -784,6 +1022,7 @@ def _install_openai_replay_hooks():
       status = "error"
       error = repr(exc)
     elapsed_ms = (time.perf_counter() - started) * 1000
+    end_time_ns = time.time_ns()
     response_event = REPLAY.consume("embedding_response", event_id)
     if response_event:
       summary = response_event.get("canonical_summary", {})
@@ -799,6 +1038,8 @@ def _install_openai_replay_hooks():
         event_id=event_id,
         agent=REPLAY.current_agent(),
         step=REPLAY.current_step(),
+        start_time_ns=start_time_ns,
+        end_time_ns=end_time_ns,
         latency_ms=elapsed_ms,
         status=status,
         error=error,
@@ -1192,7 +1433,11 @@ def _default_perf_path(sim):
       char if char.isalnum() or char in ("-", "_") else "_"
       for char in sim
   )
-  return os.path.join("perf", f"headless_replay_perf_{safe_sim}.jsonl")
+  return os.path.join(
+      os.path.dirname(os.path.abspath(__file__)),
+      "perf",
+      f"headless_replay_perf_{safe_sim}.jsonl",
+  )
 
 
 def _non_overwriting_path(path):
@@ -1228,7 +1473,11 @@ def _default_report_path(sim, ext):
       char if char.isalnum() or char in ("-", "_") else "_"
       for char in sim
   )
-  return os.path.join("reports", f"headless_replay_report_{safe_sim}.{ext}")
+  return os.path.join(
+      os.path.dirname(os.path.abspath(__file__)),
+      "reports",
+      f"headless_replay_report_{safe_sim}.{ext}",
+  )
 
 
 def _safe_name(name):
@@ -1689,7 +1938,7 @@ def main():
   parser.add_argument("--report-md", help="Replay statistics Markdown output path.")
   parser.add_argument(
       "--run-dir",
-      help="Directory for replay outputs. Defaults to replay_runs/<sim>.",
+      help="Directory for replay outputs. Defaults to <this script dir>/replay_runs/<sim>.",
   )
   parser.add_argument("--report-only", action="store_true", help="Read trace/perf and write reports without running replay.")
   args = parser.parse_args()

@@ -11,8 +11,8 @@ For one-shot smoke tests:
   python headless_trace_runner.py --fork test3 --sim headless_trace_test --steps 20
 
 The trace is JSONL: one event per line. By default it is written to
-traces/trace_<sim>.jsonl and overwritten for every new run. Set
-REVERIE_TRACE_FILE to choose another path.
+<this script dir>/traces/trace_<sim>.jsonl and overwritten for every new run.
+Set REVERIE_TRACE_FILE to choose another path.
 """
 import argparse
 import builtins
@@ -20,6 +20,7 @@ import datetime
 import hashlib
 import json
 import os
+import pickle
 import random
 import sys
 import threading
@@ -30,13 +31,24 @@ import openai
 import sglang_openai_patch as sglang_patch
 
 
-TRACE_DIR = os.environ.get("REVERIE_TRACE_DIR", "traces")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+TRACE_DIR = os.environ.get(
+    "REVERIE_TRACE_DIR",
+    os.path.join(SCRIPT_DIR, "traces"),
+)
 TRACE_FILE = os.environ.get("REVERIE_TRACE_FILE")
 TRACE_RECORD_FULL_PROMPT = (
     os.environ.get("TRACE_RECORD_FULL_PROMPT", "False").lower() == "true"
 )
 TRACE_RECORD_EMBEDDINGS = (
     os.environ.get("TRACE_RECORD_EMBEDDINGS", "False").lower() == "true"
+)
+TRACE_RECORD_PREFIX_SNAPSHOTS = (
+    os.environ.get("TRACE_RECORD_PREFIX_SNAPSHOTS", "False").lower() == "true"
+)
+TRACE_PREFIX_SNAPSHOT_DIR = os.environ.get(
+    "TRACE_PREFIX_SNAPSHOT_DIR",
+    os.path.join(SCRIPT_DIR, "prefix_snapshots"),
 )
 
 
@@ -52,6 +64,8 @@ class TraceRecorder:
     self.sec_per_step = None
     self.is_running = False
     self.event_counters = {}
+    self.sim_code = None
+    self.current_server = None
     self.file = None
     self.buffered_events = []
     if path:
@@ -66,6 +80,7 @@ class TraceRecorder:
     self.buffered_events = []
 
   def configure_for_sim(self, sim_code):
+    self.sim_code = sim_code
     if self.file:
       return
     path = TRACE_FILE
@@ -149,6 +164,58 @@ class TraceRecorder:
 
   def end_run(self):
     self.is_running = False
+    self.current_server = None
+
+  def set_current_server(self, server):
+    self.current_server = server
+
+  def snapshot_path(self, step, prefix_index, agent, when):
+    safe_sim = self.slug(self.sim_code or "sim")
+    safe_agent = self.slug(agent)
+    folder = os.path.join(
+        TRACE_PREFIX_SNAPSHOT_DIR,
+        safe_sim,
+        str(step),
+    )
+    os.makedirs(folder, exist_ok=True)
+    return os.path.join(folder, f"{prefix_index:03d}_{safe_agent}_{when}.pkl")
+
+  def save_prefix_snapshot(self, when, agent, step, prefix_index):
+    if not TRACE_RECORD_PREFIX_SNAPSHOTS or self.current_server is None:
+      return None
+    path = self.snapshot_path(step, prefix_index, agent, when)
+    numpy_random_state = None
+    try:
+      import numpy
+
+      numpy_random_state = numpy.random.get_state()
+    except Exception:
+      pass
+    payload = {
+        "sim_code": self.sim_code,
+        "step": step,
+        "agent": agent,
+        "prefix_index": prefix_index,
+        "when": when,
+        "server": self.current_server,
+        "python_random_state": random.getstate(),
+        "numpy_random_state": numpy_random_state,
+    }
+    try:
+      with open(path, "wb") as outfile:
+        pickle.dump(payload, outfile, protocol=pickle.HIGHEST_PROTOCOL)
+      return path
+    except Exception:
+      self.emit(
+          "prefix_snapshot_error",
+          agent=agent,
+          step=step,
+          prefix_index=prefix_index,
+          when=when,
+          path=path,
+          error=traceback.format_exc(),
+      )
+      return None
 
   def estimate_step(self, curr_time):
     if (
@@ -369,6 +436,7 @@ def _install_openai_trace_hooks():
             "prompt": None if prompt_record else prompt,
         },
     )
+    sglang_patch.clear_last_llm_payload()
     try:
       response = original_completion_create(*args, **kwargs)
     except Exception:
@@ -381,6 +449,7 @@ def _install_openai_trace_hooks():
           step=TRACE.current_step(),
           status="error",
           error=traceback.format_exc(),
+          effective_request=sglang_patch.get_last_llm_payload(),
           canonical_texts=[],
       )
       raise
@@ -392,6 +461,7 @@ def _install_openai_trace_hooks():
         agent=TRACE.current_agent(),
         step=TRACE.current_step(),
         status="ok",
+        effective_request=sglang_patch.get_last_llm_payload(),
         canonical_texts=_completion_texts(response),
     )
     return response
@@ -428,6 +498,7 @@ def _install_openai_trace_hooks():
             "stream": kwargs.get("stream"),
         },
     )
+    sglang_patch.clear_last_llm_payload()
     try:
       response = original_chat_create(*args, **kwargs)
     except Exception:
@@ -440,6 +511,7 @@ def _install_openai_trace_hooks():
           step=TRACE.current_step(),
           status="error",
           error=traceback.format_exc(),
+          effective_request=sglang_patch.get_last_llm_payload(),
           canonical_texts=[],
       )
       raise
@@ -451,6 +523,7 @@ def _install_openai_trace_hooks():
         agent=TRACE.current_agent(),
         step=TRACE.current_step(),
         status="ok",
+        effective_request=sglang_patch.get_last_llm_payload(),
         canonical_texts=_chat_texts(response),
     )
     return response
@@ -583,6 +656,33 @@ def _install_random_trace_hooks():
 def _install_import_trace_hooks():
   original_import = builtins.__import__
 
+  def wrap_prompt_result_module(module):
+    for func_name in dir(module):
+      if not func_name.startswith("run_gpt_prompt_"):
+        continue
+      original = getattr(module, func_name, None)
+      if not callable(original) or getattr(original, "_trace_wrapped", False):
+        continue
+
+      def make_traced(name, original_func):
+        def traced_prompt_function(*args, **kwargs):
+          result = original_func(*args, **kwargs)
+          if TRACE.is_running:
+            TRACE.emit(
+                "prompt_result",
+                event_id=TRACE.event_id("prompt_result", label=name),
+                agent=TRACE.current_agent(),
+                step=TRACE.current_step(),
+                prompt_function=name,
+                result=result,
+            )
+          return result
+
+        traced_prompt_function._trace_wrapped = True
+        return traced_prompt_function
+
+      setattr(module, func_name, make_traced(func_name, original))
+
   def traced_import(name, globals=None, locals=None, fromlist=(), level=0):
     module = original_import(name, globals, locals, fromlist, level)
     if name == "persona.prompt_template.gpt_structure":
@@ -598,9 +698,14 @@ def _install_import_trace_hooks():
 
         traced_generate_prompt._trace_wrapped = True
         module.generate_prompt = traced_generate_prompt
+    if name == "persona.prompt_template.run_gpt_prompt":
+      wrap_prompt_result_module(module)
     return module
 
   builtins.__import__ = traced_import
+  loaded = sys.modules.get("persona.prompt_template.run_gpt_prompt")
+  if loaded:
+    wrap_prompt_result_module(loaded)
 
 
 def _install_class_trace_hooks():
@@ -640,6 +745,7 @@ def _install_class_trace_hooks():
 
       def traced_start_server(self, int_counter):
         TRACE.start_run()
+        TRACE.set_current_server(self)
         TRACE.emit(
             "run_start",
             event_id=TRACE.global_event_id(
@@ -678,24 +784,48 @@ def _install_class_trace_hooks():
 
       def traced_move(self, maze, personas, curr_tile, curr_time):
         curr_step = TRACE.estimate_step(curr_time)
-        TRACE.set_agent_context(getattr(self, "name", None), curr_step)
+        agent_name = getattr(self, "name", None)
+        TRACE.set_agent_context(agent_name, curr_step)
         move_event_id = TRACE.event_id("agent_move")
         TRACE.remember_local_event_id("agent_move", move_event_id)
+        server = TRACE.current_server
+        agent_order = list(getattr(server, "personas", {}).keys()) if server else []
+        try:
+          prefix_index = agent_order.index(agent_name)
+        except ValueError:
+          prefix_index = 0
+        before_snapshot = TRACE.save_prefix_snapshot(
+            "before",
+            agent_name,
+            curr_step,
+            prefix_index,
+        )
         TRACE.emit(
             "agent_move_start",
             event_id=move_event_id,
-            agent=getattr(self, "name", None),
+            agent=agent_name,
             step=curr_step,
+            prefix_index=prefix_index,
+            prefix_snapshot_before=before_snapshot,
             curr_tile=curr_tile,
             curr_time=curr_time,
             scratch_before=TRACE.scratch_summary(self.scratch),
         )
         try:
           output = original_move(self, maze, personas, curr_tile, curr_time)
+          after_snapshot = TRACE.save_prefix_snapshot(
+              "after",
+              agent_name,
+              curr_step,
+              prefix_index,
+          )
           TRACE.emit(
               "agent_move_end",
               event_id=move_event_id,
-              agent=getattr(self, "name", None),
+              agent=agent_name,
+              step=curr_step,
+              prefix_index=prefix_index,
+              prefix_snapshot_after=after_snapshot,
               curr_time=curr_time,
               output={
                   "next_tile": output[0],
