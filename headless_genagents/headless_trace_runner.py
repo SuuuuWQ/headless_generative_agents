@@ -653,7 +653,7 @@ def _install_random_trace_hooks():
   random.sample = traced_sample
 
 
-def _install_import_trace_hooks():
+def _install_import_trace_hooks(record_prompts=True):
   original_import = builtins.__import__
 
   def wrap_prompt_result_module(module):
@@ -685,7 +685,7 @@ def _install_import_trace_hooks():
 
   def traced_import(name, globals=None, locals=None, fromlist=(), level=0):
     module = original_import(name, globals, locals, fromlist, level)
-    if name == "persona.prompt_template.gpt_structure":
+    if record_prompts and name == "persona.prompt_template.gpt_structure":
       original_generate_prompt = getattr(module, "generate_prompt", None)
       if original_generate_prompt and not getattr(
           original_generate_prompt, "_trace_wrapped", False
@@ -697,6 +697,10 @@ def _install_import_trace_hooks():
           return prompt
 
         traced_generate_prompt._trace_wrapped = True
+        if getattr(original_generate_prompt, "_direct_perf_wrapped", False):
+          traced_generate_prompt._direct_perf_wrapped = True
+        if getattr(original_generate_prompt, "_replay_wrapped", False):
+          traced_generate_prompt._replay_wrapped = True
         module.generate_prompt = traced_generate_prompt
     if name == "persona.prompt_template.run_gpt_prompt":
       wrap_prompt_result_module(module)

@@ -2,7 +2,7 @@
 Verify a headless trace-guided replay against its source simulation and perf log.
 
 Example:
-  python verify_headless_replay.py \
+  python legacy_replay_benchmark/verify_headless_replay.py \
     --trace traces/trace_test_headless_trace_1_500.jsonl \
     --replay-sim replay_test_headless_trace_1_500
 """
@@ -14,7 +14,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_STORAGE = ROOT / "environment" / "frontend_server" / "storage"
 
 

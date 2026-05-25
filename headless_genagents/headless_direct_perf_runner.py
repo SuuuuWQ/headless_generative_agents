@@ -247,6 +247,10 @@ def _install_prompt_perf_hooks():
       return prompt
 
     direct_generate_prompt._direct_perf_wrapped = True
+    if getattr(original_generate_prompt, "_trace_wrapped", False):
+      direct_generate_prompt._trace_wrapped = True
+    if getattr(original_generate_prompt, "_replay_wrapped", False):
+      direct_generate_prompt._replay_wrapped = True
     module.generate_prompt = direct_generate_prompt
 
   def direct_import(name, globals=None, locals=None, fromlist=(), level=0):

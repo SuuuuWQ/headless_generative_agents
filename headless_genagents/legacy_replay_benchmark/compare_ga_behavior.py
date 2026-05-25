@@ -6,7 +6,7 @@ import os
 from collections import Counter, defaultdict
 
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def load_json(path):

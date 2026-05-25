@@ -2,7 +2,7 @@
 Plot figures from a headless replay report and perf JSONL.
 
 Example:
-  python plot_replay_report.py \
+  python legacy_replay_benchmark/plot_replay_report.py \
     --report reports/headless_replay_report_replay_test_headless_trace_1_500_j.json
 """
 import argparse

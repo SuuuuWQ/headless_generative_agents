@@ -1,25 +1,27 @@
-# Headless Generative Agents Replay Benchmark
+# Headless Generative Agents LLM Benchmark
 
 This package is a self-contained headless copy of the Generative Agents backend.
 It removes the need for the browser visualization loop while preserving the GA
 control flow, persona logic, memory structures, planning, reflection, retrieval,
-movement writing, trace recording, trace-guided replay, verification, profiling,
-and plotting.
+movement writing, trace recording, profiling, and plotting. The main benchmark
+path records one direct GA run, builds interaction groups from the original GA
+perception logic, and then reruns only the trace's LLM requests with grouped
+scheduling.
 
 The package includes:
 
-- `headless_genagents/`: headless GA code and replay/profiling tools.
+- `headless_genagents/`: headless GA code and benchmark/profiling tools.
 - `environment/frontend_server/storage/July1_the_ville_isabella_maria_klaus-step-3-14/`:
   the recommended fork point for new smoke tests and traces.
 - `environment/frontend_server/storage/test_headless_trace_1_500/`: source
   simulation output for the included 500-step trace.
 - `environment/frontend_server/storage/replay_test_headless_trace_1_500_l/`: a
   successful replay output for comparison.
-- `headless_genagents/traces/trace_test_headless_trace_1_500.jsonl`: included
-  replay trace.
-- `headless_genagents/replay_runs/replay_test_headless_trace_1_500_l/`:
-  included example replay run with `config.json`, `perf.jsonl`,
-  `report.json`, `report.md`, and `figures/`.
+- `headless_genagents/legacy_replay_benchmark/`: older trace-guided replay
+  benchmark scripts kept for reference.
+- `headless_genagents/runs/direct_trace_perf_n25_10_l/`: included grouped LLM
+  benchmark example with `llm_trace.jsonl`, `position_index.jsonl`, and
+  `group_index.jsonl` only. The full `trace.jsonl` is intentionally omitted.
 
 ## Code Map
 
@@ -37,20 +39,31 @@ original system. The main added or modified tools are grouped below.
 - `headless_direct_perf_runner.py`: run headless GA and record performance logs
   without writing a full replay trace.
 
-### Replay And Check
+### Grouped LLM Benchmark
 
-- `headless_replay_runner.py`: replay a trace through the real headless GA
-  control flow while timing model calls and using trace values for
-  nondeterministic results.
-- `compare_ga_behavior.py`: compare direct and replay artifacts at behavior and
-  LLM-call level.
-- `verify_headless_replay.py`: check trace integrity, replay output, metadata,
-  and performance logs.
+- `export_position_index.py`: export compact per-step agent positions from
+  `environment/<step>.json`.
+- `export_llm_trace.py`: export a compact LLM-focused trace from a full trace.
+- `build_interaction_groups.py`: build conservative interaction groups using
+  GA-style perception rules.
+- `run_grouped_trace_llm.py`: rerun only trace LLM requests with step order,
+  group-parallel scheduling, group-internal serial execution, and agent-local
+  LLM order preserved.
+- `plot_group_index.py`: visualize a step's interaction groups and percepts.
 
 ### Plot
 
 - `plot_direct_perf.py`: generate direct-run timeline figures.
-- `plot_replay_report.py`: generate profiling figures from a replay report.
+- `plot_grouped_trace_llm.py`: generate grouped LLM benchmark timelines.
+
+### Legacy Replay Benchmark
+
+- `legacy_replay_benchmark/headless_replay_runner.py`: older trace-guided
+  replay path through GA control flow.
+- `legacy_replay_benchmark/compare_ga_behavior.py`: compare direct/replay
+  artifacts.
+- `legacy_replay_benchmark/verify_headless_replay.py`: verify replay output.
+- `legacy_replay_benchmark/plot_replay_report.py`: plot replay reports.
 
 ### Support
 
@@ -170,7 +183,7 @@ This should create:
 ## Record A Trace With Direct Performance Logs
 
 This is the recommended command for new experiments because it records the full
-trace and a direct-run performance log in one run:
+trace, direct-run performance log, position index, and group index in one run:
 
 ```bash
 cd headless_genagents
@@ -178,16 +191,20 @@ python headless_direct_trace_perf_runner.py \
   --fork July1_the_ville_isabella_maria_klaus-step-3-14 \
   --sim direct_trace_perf_100 \
   --steps 100 \
-  --seed 1
+  --seed 1 \
+  --export-indexes
 ```
 
 This writes:
 
 ```text
-headless_genagents/traces/trace_direct_trace_perf_100.jsonl
-headless_genagents/direct_run_perf_runs/direct_trace_perf_100/
+headless_genagents/runs/direct_trace_perf_100/
   config.json
+  trace.jsonl
+  llm_trace.jsonl
   perf.jsonl
+  position_index.jsonl
+  group_index.jsonl
 ```
 
 Prefix snapshots are optional and disabled by default. Enable them only when you
@@ -201,8 +218,61 @@ To generate direct-run timeline figures:
 
 ```bash
 python plot_direct_perf.py \
-  --perf direct_run_perf_runs/direct_trace_perf_100/perf.jsonl
+  --perf runs/direct_trace_perf_100/perf.jsonl
 ```
+
+To create a smaller trace for sharing or grouped-LLM benchmarking:
+
+```bash
+python export_llm_trace.py direct_trace_perf_100
+```
+
+This writes:
+
+```text
+headless_genagents/runs/direct_trace_perf_100/llm_trace.jsonl
+```
+
+## Run The Grouped LLM Benchmark
+
+After recording a direct trace+perf run with `--export-indexes`, rerun only the
+trace's LLM requests with interaction-group scheduling:
+
+```bash
+python run_grouped_trace_llm.py direct_trace_perf_100 --plot
+```
+
+The grouped benchmark reads:
+
+```text
+headless_genagents/runs/direct_trace_perf_100/llm_trace.jsonl
+headless_genagents/runs/direct_trace_perf_100/group_index.jsonl
+```
+
+If `llm_trace.jsonl` is missing, it falls back to `trace.jsonl`.
+
+and writes:
+
+```text
+headless_genagents/runs/direct_trace_perf_100/grouped_trace_llm_perf.jsonl
+headless_genagents/runs/direct_trace_perf_100/figures/
+```
+
+To inspect the grouping for one step:
+
+```bash
+python plot_group_index.py direct_trace_perf_100 --step 2880
+```
+
+The release includes one compact example run:
+
+```bash
+python run_grouped_trace_llm.py direct_trace_perf_n25_10_l --plot
+python plot_group_index.py direct_trace_perf_n25_10_l --step 2880
+```
+
+This example includes `llm_trace.jsonl`, `position_index.jsonl`, and
+`group_index.jsonl`; it does not include the full `trace.jsonl`.
 
 ## Record A Trace Only
 
@@ -238,13 +308,13 @@ The trace is written to:
 headless_genagents/traces/trace_my_trace_sim.jsonl
 ```
 
-## Replay The Included Trace
+## Legacy: Replay The Included Trace
 
 Run a new replay from the included trace with a new simulation name:
 
 ```bash
 cd headless_genagents
-python headless_replay_runner.py \
+python legacy_replay_benchmark/headless_replay_runner.py \
   --trace traces/trace_test_headless_trace_1_500.jsonl \
   --sim replay_test_headless_trace_1_500_new
 ```
@@ -252,7 +322,7 @@ python headless_replay_runner.py \
 By default, the replay profiling artifacts are saved under one run folder:
 
 ```text
-headless_genagents/replay_runs/<replay-sim>/
+headless_genagents/legacy_replay_benchmark/replay_runs/<replay-sim>/
   config.json
   perf.jsonl
   report.json
@@ -269,28 +339,28 @@ environment/frontend_server/storage/<replay-sim>
 To choose the run folder explicitly:
 
 ```bash
-python headless_replay_runner.py \
+python legacy_replay_benchmark/headless_replay_runner.py \
   --trace traces/trace_test_headless_trace_1_500.jsonl \
   --sim replay_test_headless_trace_1_500_new \
-  --run-dir replay_runs/replay_test_headless_trace_1_500_new
+  --run-dir legacy_replay_benchmark/replay_runs/replay_test_headless_trace_1_500_new
 ```
 
 To replay a trace you just recorded:
 
 ```bash
-python headless_replay_runner.py \
-  --trace traces/trace_direct_trace_perf_100.jsonl \
+python legacy_replay_benchmark/headless_replay_runner.py \
+  --trace runs/direct_trace_perf_100/trace.jsonl \
   --sim replay_direct_trace_perf_100
 ```
 
-## Compare Direct Run And Replay
+## Legacy: Compare Direct Run And Replay
 
 After recording a direct trace+perf run and replaying it, compare behavior and
 LLM-call alignment:
 
 ```bash
-python compare_ga_behavior.py \
-  direct_run_perf_runs/direct_trace_perf_100 \
+python legacy_replay_benchmark/compare_ga_behavior.py \
+  runs/direct_trace_perf_100 \
   replay_runs/replay_direct_trace_perf_100
 ```
 
@@ -298,43 +368,43 @@ The behavior-level comparison checks agent-round outputs, retrieval/reflection
 counts, memory writes, and model-call signatures. The LLM-call comparison is
 the most useful view for steps that contain many model calls.
 
-## Report And Figures
+## Legacy: Report And Figures
 
 Each replay run writes `report.json` and `report.md` automatically. To generate
 figures for a replay run:
 
 ```bash
-python plot_replay_report.py \
-  --report replay_runs/replay_test_headless_trace_1_500_new/report.json
+python legacy_replay_benchmark/plot_replay_report.py \
+  --report legacy_replay_benchmark/replay_runs/replay_test_headless_trace_1_500_new/report.json
 ```
 
 Figures are written to:
 
 ```text
-headless_genagents/replay_runs/<replay-sim>/figures
+headless_genagents/legacy_replay_benchmark/replay_runs/<replay-sim>/figures
 ```
 
 If you already have a perf log and only want to regenerate reports:
 
 ```bash
-python headless_replay_runner.py \
+python legacy_replay_benchmark/headless_replay_runner.py \
   --trace traces/trace_test_headless_trace_1_500.jsonl \
   --sim replay_test_headless_trace_1_500_new \
-  --perf replay_runs/replay_test_headless_trace_1_500_new/perf.jsonl \
-  --report replay_runs/replay_test_headless_trace_1_500_new/report.json \
-  --report-md replay_runs/replay_test_headless_trace_1_500_new/report.md \
+  --perf legacy_replay_benchmark/replay_runs/replay_test_headless_trace_1_500_new/perf.jsonl \
+  --report legacy_replay_benchmark/replay_runs/replay_test_headless_trace_1_500_new/report.json \
+  --report-md legacy_replay_benchmark/replay_runs/replay_test_headless_trace_1_500_new/report.md \
   --report-only
 ```
 
-## Verify Replay Output
+## Legacy: Verify Replay Output
 
 To verify a replay run:
 
 ```bash
-python verify_headless_replay.py \
+python legacy_replay_benchmark/verify_headless_replay.py \
   --trace traces/trace_test_headless_trace_1_500.jsonl \
   --replay-sim replay_test_headless_trace_1_500_new \
-  --perf replay_runs/replay_test_headless_trace_1_500_new/perf.jsonl \
+  --perf legacy_replay_benchmark/replay_runs/replay_test_headless_trace_1_500_new/perf.jsonl \
   --allow-perf-errors
 ```
 
@@ -342,7 +412,7 @@ The package also includes one completed replay run. To verify the included
 example:
 
 ```bash
-python verify_headless_replay.py \
+python legacy_replay_benchmark/verify_headless_replay.py \
   --trace traces/trace_test_headless_trace_1_500.jsonl \
   --replay-sim replay_test_headless_trace_1_500_l \
   --perf replay_runs/replay_test_headless_trace_1_500_l/perf.jsonl \

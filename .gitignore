@@ -20,6 +20,13 @@ headless_genagents/replay_runs/*
 !headless_genagents/replay_runs/replay_test_headless_trace_1_500_l/
 !headless_genagents/replay_runs/replay_test_headless_trace_1_500_l/**
 
+headless_genagents/runs/*
+!headless_genagents/runs/direct_trace_perf_n25_10_l/
+!headless_genagents/runs/direct_trace_perf_n25_10_l/llm_trace.jsonl
+!headless_genagents/runs/direct_trace_perf_n25_10_l/position_index.jsonl
+!headless_genagents/runs/direct_trace_perf_n25_10_l/group_index.jsonl
+headless_genagents/legacy_replay_benchmark/replay_runs/*
+
 # Generated simulation folders. Keep included examples.
 environment/frontend_server/storage/headless_*/
 environment/frontend_server/storage/replay_*/

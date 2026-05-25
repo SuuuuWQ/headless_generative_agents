@@ -6,7 +6,8 @@ It executes expensive/nondeterministic nodes, records timing, then returns the
 canonical trace result to the GA wherever the trace has the semantic result.
 
 Usage:
-  python headless_replay_runner.py --trace traces/trace_headless_trace_test.jsonl
+  python legacy_replay_benchmark/headless_replay_runner.py \
+    --trace traces/trace_headless_trace_test.jsonl
 """
 import argparse
 import builtins
@@ -19,6 +20,10 @@ import sys
 import threading
 import time
 import traceback
+
+PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PARENT_DIR not in sys.path:
+  sys.path.insert(0, PARENT_DIR)
 
 import openai
 

@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import random
+import subprocess
 import sys
 import time
 import traceback
@@ -24,7 +25,45 @@ import headless_trace_runner as trace_runner
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-RUN_ROOT = os.path.join(SCRIPT_DIR, "direct_run_perf_runs")
+RUN_ROOT = os.path.join(SCRIPT_DIR, "runs")
+
+
+def _install_combined_prompt_hooks():
+  import builtins
+
+  original_import = builtins.__import__
+
+  def wrap_generate_prompt(module):
+    original_generate_prompt = getattr(module, "generate_prompt", None)
+    if not original_generate_prompt or getattr(
+        original_generate_prompt, "_direct_trace_perf_wrapped", False
+    ):
+      return
+
+    def combined_generate_prompt(curr_input, prompt_lib_file):
+      prompt = original_generate_prompt(curr_input, prompt_lib_file)
+      trace_runner.TRACE.record_prompt(prompt, curr_input, prompt_lib_file)
+      if direct_perf.DIRECT is not None:
+        direct_perf.DIRECT.record_prompt(prompt, curr_input, prompt_lib_file)
+      return prompt
+
+    combined_generate_prompt._direct_trace_perf_wrapped = True
+    combined_generate_prompt._trace_wrapped = True
+    combined_generate_prompt._direct_perf_wrapped = True
+    if getattr(original_generate_prompt, "_replay_wrapped", False):
+      combined_generate_prompt._replay_wrapped = True
+    module.generate_prompt = combined_generate_prompt
+
+  def combined_import(name, globals=None, locals=None, fromlist=(), level=0):
+    module = original_import(name, globals, locals, fromlist, level)
+    if name == "persona.prompt_template.gpt_structure":
+      wrap_generate_prompt(module)
+    return module
+
+  builtins.__import__ = combined_import
+  loaded = sys.modules.get("persona.prompt_template.gpt_structure")
+  if loaded:
+    wrap_generate_prompt(loaded)
 
 
 def _configure_seed(seed):
@@ -41,6 +80,61 @@ def _configure_seed(seed):
   return seed
 
 
+def _run_postprocess_indexes(sim, trace_file, run_dir):
+  if not trace_file:
+    raise RuntimeError("Trace file path is unavailable; cannot export indexes.")
+
+  llm_trace = os.path.abspath(os.path.join(run_dir, "llm_trace.jsonl"))
+  position_index = os.path.abspath(os.path.join(run_dir, "position_index.jsonl"))
+  group_index = os.path.abspath(os.path.join(run_dir, "group_index.jsonl"))
+  llm_trace_script = os.path.join(SCRIPT_DIR, "export_llm_trace.py")
+  export_script = os.path.join(SCRIPT_DIR, "export_position_index.py")
+  group_script = os.path.join(SCRIPT_DIR, "build_interaction_groups.py")
+
+  print(f"[direct trace+perf] exporting LLM trace: {llm_trace}")
+  subprocess.run(
+      [
+          sys.executable,
+          llm_trace_script,
+          os.path.abspath(trace_file),
+          "--output",
+          llm_trace,
+      ],
+      check=True,
+  )
+
+  print(f"[direct trace+perf] exporting position index: {position_index}")
+  subprocess.run(
+      [
+          sys.executable,
+          export_script,
+          "--sim",
+          sim,
+          "--trace",
+          os.path.abspath(trace_file),
+          "--output",
+          position_index,
+      ],
+      check=True,
+  )
+
+  print(f"[direct trace+perf] exporting group index: {group_index}")
+  subprocess.run(
+      [
+          sys.executable,
+          group_script,
+          "--position-index",
+          position_index,
+          "--output",
+          group_index,
+      ],
+      check=True,
+  )
+  print(f"[direct trace+perf] LLM trace: {llm_trace}")
+  print(f"[direct trace+perf] position index: {position_index}")
+  print(f"[direct trace+perf] group index: {group_index}")
+
+
 def main():
   parser = argparse.ArgumentParser()
   parser.add_argument("--fork", help="Simulation folder to fork from.")
@@ -48,7 +142,7 @@ def main():
   parser.add_argument("--steps", type=int)
   parser.add_argument(
       "--run-dir",
-      help="Defaults to <this script dir>/direct_run_perf_runs/<sim>.",
+      help="Defaults to <this script dir>/runs/<sim>.",
   )
   parser.add_argument("--perf", help="Defaults to <run-dir>/perf.jsonl.")
   parser.add_argument(
@@ -58,13 +152,25 @@ def main():
       help="Seed Python random and NumPy. Can also be set with GA_RANDOM_SEED.",
   )
   parser.add_argument("--no-save", action="store_true")
+  parser.add_argument(
+      "--export-indexes",
+      action="store_true",
+      help=(
+          "After a successful run, export position_index.jsonl and a debug "
+          "group_index.jsonl with percepts/edges."
+      ),
+  )
   args = parser.parse_args()
 
   fork = args.fork or input("Enter the name of the forked simulation: ").strip()
   sim = args.sim or input("Enter the name of the new simulation: ").strip()
   run_dir = args.run_dir or os.path.join(RUN_ROOT, sim)
+  run_dir = os.path.abspath(run_dir)
   perf_path = args.perf or os.path.join(run_dir, "perf.jsonl")
   os.makedirs(run_dir, exist_ok=True)
+  if not trace_runner.TRACE_FILE:
+    trace_runner.TRACE_FILE = os.path.join(run_dir, "trace.jsonl")
+    trace_runner.TRACE_DIR = run_dir
   seed = _configure_seed(args.seed)
   hash_seed = os.environ.get("PYTHONHASHSEED")
 
@@ -84,6 +190,7 @@ def main():
             "sglang_force_temperature": os.environ.get("SGLANG_FORCE_TEMPERATURE"),
             "sglang_force_top_p": os.environ.get("SGLANG_FORCE_TOP_P"),
             "sglang_request_seed": os.environ.get("SGLANG_REQUEST_SEED"),
+            "export_indexes": args.export_indexes,
         },
         outfile,
         indent=2,
@@ -97,12 +204,12 @@ def main():
   sglang_openai_patch._install_fast_fork_copy()
   sglang_openai_patch._install_reverie_server_init_hook()
 
-  trace_runner._install_import_trace_hooks()
+  trace_runner._install_import_trace_hooks(record_prompts=False)
+  _install_combined_prompt_hooks()
   trace_runner._install_class_trace_hooks()
   trace_runner._install_movement_trace_hook()
   trace_runner._install_openai_trace_hooks()
   trace_runner._install_random_trace_hooks()
-  direct_perf._install_prompt_perf_hooks()
 
   trace_runner.TRACE.emit(
       "trace_session_start",
@@ -126,6 +233,7 @@ def main():
   start_time_ns = time.time_ns()
   status = "ok"
   error = None
+  completed = False
   try:
     from reverie import ReverieServer
 
@@ -147,6 +255,7 @@ def main():
       print(f"[direct trace+perf] complete: {sim}, steps={args.steps}")
 
     print(f"[direct trace+perf] perf: {os.path.abspath(perf_path)}")
+    completed = True
   except Exception:
     status = "error"
     error = traceback.format_exc()
@@ -186,6 +295,9 @@ def main():
         event_id=trace_runner.TRACE.global_event_id("trace_session", label="end"),
     )
     trace_runner.TRACE.close()
+
+  if completed and args.export_indexes:
+    _run_postprocess_indexes(sim, trace_runner.TRACE.path, run_dir)
 
 
 if __name__ == "__main__":
